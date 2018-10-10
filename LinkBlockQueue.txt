@@ -1,0 +1,2 @@
+自己查下学习下
+ LinkedBlockingQueue和ConcurrentLinkedQueue 以及 ArrayBlockingQueue  PriorityBlockingQueue

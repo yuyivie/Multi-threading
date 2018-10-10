@@ -1,0 +1,113 @@
+Java多线程--让主线程等待所有子线程执行完毕  使用方法如下：
+
+
+
+package com.ane.service.impl;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import javax.annotation.Resource;
+
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONArray;
+import com.alibaba.fastjson.JSONObject;
+import com.ane.common.service.IRedisCommandService;
+import com.ane.entity.PackageEwbsItemVO;
+import com.ane.entity.PackageEwbsVO;
+import com.ane.framework.common.data.ext.GenericExtServiceImpl;
+import com.ane.util.ResultTypeUtil;
+import com.ane.util.UUIDUtil;
+import com.ane.webservice.impl.BasePDAService;
+import com.ane.webservice.servicebean.ServiceBeanMessage;
+
+/**
+ * @author yu
+ * 
+ *         类描述：集包接口 创建日期：2016-4-11
+ * 
+ */
+public class PackageEwbsService extends BasePDAService {
+	private final Log log = LogFactory.getLog(getClass());
+	@Resource(name = "redisCommandServiceImpl")
+	private IRedisCommandService redisService;
+	@Resource(name = "genericExtService")
+	private GenericExtServiceImpl genericExtService;
+
+	@SuppressWarnings("unchecked")
+	@Override
+	public String getOptPDAResultInfo(ServiceBeanMessage beanMessage) {
+		if (!super.valication(beanMessage)) {
+			return ResultTypeUtil.valicationFailure(beanMessage); // 校验失败
+		}
+		log.info("开始集包  参数为 ==" + beanMessage.getParams());
+
+		List<PackageEwbsVO> listVo = JSONArray.parseArray(
+				beanMessage.getParams(), PackageEwbsVO.class);
+		try {
+			for (PackageEwbsVO vo : listVo) {
+
+				PackageEwbsVO vo2 = redisService.get(vo.getPackageCode(),
+						PackageEwbsVO.class);
+				if (vo2 == null) {// 缓存里面没有 说明该包已完成使用 或者 未保存该包 则新插入一个新的包
+					vo.setPackageId(UUIDUtil.getUUID());
+
+					genericExtService.insert("PackageEwbsVO.insertPackageEwbs",
+							vo);
+					log.info("集包主表保存成功，集包号为==" + vo.getPackageCode() + "扫描网点为："
+							+ vo.getScanSite() + "扫描人为：" + vo.getScanMan());
+					redisService.set(vo.getPackageCode(), vo, 0);
+				}
+				List<PackageEwbsItemVO> itemList = vo.getPacketItems();
+				Set<PackageEwbsItemVO> itemAdd = new HashSet<PackageEwbsItemVO>();
+				Set<PackageEwbsItemVO> itemUpdate = new HashSet<PackageEwbsItemVO>();
+				if (itemList != null && !itemList.isEmpty()) {
+					for (PackageEwbsItemVO itemVo : itemUpdate) {
+						if (itemVo.getStatus() == 1) {
+							itemVo.setGroupPackId(vo.getPackageId());
+							itemAdd.add(itemVo);
+						} else {
+							itemUpdate.add(itemVo);
+						}
+					}
+				}
+				final CountDownLatch a = new CountDownLatch(2);//
+				ExecutorService threadPool = Executors.newCachedThreadPool();
+				if (itemAdd != null && !itemAdd.isEmpty()) {
+					threadPool.execute(new Runnable() {
+
+						@Override
+						public void run() {
+							System.out.println("234234");
+							a.countDown();
+						}
+					});
+				}
+				if (itemUpdate != null && !itemUpdate.isEmpty()) {
+					threadPool.execute(new Runnable() {
+
+						@Override
+						public void run() {
+							a.countDown();
+						}
+					});
+				}
+				a.await();
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+
+		return "异常";
+	}
+
+}
